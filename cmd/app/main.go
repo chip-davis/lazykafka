@@ -252,7 +252,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.toast.Init()
 				}
 
-				m.activeOverlay = overlayNone
 				// TODO: actually download the topic here
 				m.toast = ui.NewToast("Download started!", ui.Success, ui.TopRight, 3)
 				m.showToast = true
@@ -464,6 +463,18 @@ func (m model) View() string {
 			0,
 			0,
 		))
+
+	case overlayDownloadTopic:
+		formView := m.downloadTopicForm.View()
+		return m.toastWrapper(overlay.Composite(
+			formView,
+			background,
+			overlay.Center,
+			overlay.Center,
+			0,
+			0,
+		))
+
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
 		return m.toastWrapper(overlay.Composite(

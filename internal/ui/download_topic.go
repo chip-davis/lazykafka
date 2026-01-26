@@ -1,7 +1,8 @@
 package ui
 
 import (
-	"io/fs"
+	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,10 +42,16 @@ func (f DownloadTopicForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
-			if f.textInput.Value() == "" {
-				if fs.ValidPath(f.textInput.Value()) {
-					return f, func() tea.Msg {
-						return DownloadTopicSubmittedMsg{TopicName: f.topicName, DownloadPath: f.textInput.Value(), ValidPath: true}
+			path := f.textInput.Value()
+			if path != "" {
+				dir := filepath.Dir(path)
+				_, err := os.Stat(dir)
+				isValid := err == nil
+				return f, func() tea.Msg {
+					return DownloadTopicSubmittedMsg{
+						TopicName:    f.topicName,
+						DownloadPath: path,
+						ValidPath:    isValid,
 					}
 				}
 			}
