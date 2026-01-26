@@ -52,6 +52,10 @@ type model struct {
 	deleteTopicForm    ui.DeleteTopicForm
 	produceMessageForm ui.ProduceMessageForm
 	selectedTopic      string
+
+	// Toast
+	toast     ui.Toast
+	showToast bool
 }
 
 type topicsLoadedMsg struct {
@@ -153,6 +157,10 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
+	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
+		m.showToast = false
+	}
+
 	if m.currentView == viewTopicDetail {
 
 		if kafkaMsg, ok := msg.(kafkaMessageReceivedMsg); ok {
@@ -218,7 +226,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					log.Errorf("Error: %v", err)
 				}
 				m.client.ProduceMessage(ctx, &record)
-				return m, nil
+				m.toast = ui.NewToast("Message produced successfully!", ui.Success, ui.TopRight, 3)
+				m.showToast = true
+				return m, m.toast.Init()
 			}
 
 			if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -335,6 +345,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) toastWrapper(content string) string {
+	if !m.showToast {
+		return content
+	}
+
+	toastView := m.toast.View()
+	if toastView == "" {
+		return content
+	}
+	var hPos, vPos overlay.Position
+	switch m.toast.Position {
+	case ui.TopRight:
+		hPos, vPos = overlay.Right, overlay.Top
+	case ui.BottomRight:
+		hPos, vPos = overlay.Right, overlay.Bottom
+	case ui.TopLeft:
+		hPos, vPos = overlay.Left, overlay.Top
+	case ui.BottomLeft:
+		hPos, vPos = overlay.Left, overlay.Bottom
+	case ui.Center:
+		hPos, vPos = overlay.Center, overlay.Center
+	}
+	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
+}
+
 func (m model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -342,9 +377,9 @@ func (m model) View() string {
 
 	if m.currentView == viewTopicDetail {
 		if vm, exists := m.topicViewModels[m.selectedTopic]; exists {
-			return vm.View()
+			return m.toastWrapper(vm.View())
 		}
-		return "Error: Topic view model not found"
+		return m.toastWrapper("Error: Topic view model not found")
 	}
 
 	header := ui.HeaderStyle.Width(m.width - 4).Render(
@@ -373,37 +408,37 @@ func (m model) View() string {
 	switch m.activeOverlay {
 	case overlayCreateTopic:
 		formView := m.createTopicForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	case overlayProduceMessage:
 		formView := m.produceMessageForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	}
 
-	return background
+	return m.toastWrapper(background)
 }
 
 func main() {
