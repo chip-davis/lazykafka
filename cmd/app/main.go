@@ -51,70 +51,7 @@ type model struct {
 	overlayMgr    OverlayManager
 	selectedTopic string
 
-	toastMgr ToastManager
-}
-
-type ToastManager struct {
-	toast     ui.Toast
-	showToast bool
-}
-
-func newToastManager() ToastManager {
-	return ToastManager{
-		showToast: false,
-	}
-}
-
-func (tm *ToastManager) HandleMessage(msg tea.Msg) bool {
-	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
-		tm.showToast = false
-		return true
-	}
-	return false
-}
-
-func (tm *ToastManager) ShowSuccess(message string) tea.Cmd {
-	tm.toast = ui.NewToast(message, ui.Success, ui.TopRight, 3)
-	tm.showToast = true
-	return tm.toast.Init()
-}
-
-func (tm *ToastManager) ShowError(message string) tea.Cmd {
-	tm.toast = ui.NewToast(message, ui.Error, ui.TopRight, 5)
-	tm.showToast = true
-	return tm.toast.Init()
-}
-
-func (tm *ToastManager) ShowInfo(message string) tea.Cmd {
-	tm.toast = ui.NewToast(message, ui.Info, ui.TopRight, 3)
-	tm.showToast = true
-	return tm.toast.Init()
-}
-
-func (tm *ToastManager) Wrap(content string) string {
-	if !tm.showToast {
-		return content
-	}
-
-	toastView := tm.toast.View()
-	if toastView == "" {
-		return content
-	}
-
-	var hPos, vPos overlay.Position
-	switch tm.toast.Position {
-	case ui.TopRight:
-		hPos, vPos = overlay.Right, overlay.Top
-	case ui.BottomRight:
-		hPos, vPos = overlay.Right, overlay.Bottom
-	case ui.TopLeft:
-		hPos, vPos = overlay.Left, overlay.Top
-	case ui.BottomLeft:
-		hPos, vPos = overlay.Left, overlay.Bottom
-	case ui.Center:
-		hPos, vPos = overlay.Center, overlay.Center
-	}
-	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
+	toastMgr ui.ToastManager
 }
 
 type OverlayManager struct {
@@ -165,7 +102,7 @@ func (om *OverlayManager) OpenDownloadTopic(topicName string) {
 	om.downloadTopicForm = ui.NewDownloadTopicForm(topicName)
 }
 
-func (om *OverlayManager) Update(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ToastManager) (bool, tea.Cmd) {
+func (om *OverlayManager) Update(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
 	if !om.IsActive() {
 		return false, nil
 	}
@@ -190,7 +127,7 @@ func (om *OverlayManager) Update(msg tea.Msg, client *kafkaadmin.Client, toastMg
 	return false, nil
 }
 
-func (om *OverlayManager) handleCreateTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ToastManager) (bool, tea.Cmd) {
+func (om *OverlayManager) handleCreateTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
 	if topic, ok := msg.(ui.TopicSubmittedMsg); ok {
 		om.Close()
 		ctx := context.Background()
@@ -207,7 +144,7 @@ func (om *OverlayManager) handleCreateTopic(msg tea.Msg, client *kafkaadmin.Clie
 	return true, cmd
 }
 
-func (om *OverlayManager) handleDeleteTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ToastManager) (bool, tea.Cmd) {
+func (om *OverlayManager) handleDeleteTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
 	if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
 		om.Close()
 		if deletedMsg.Confirmed {
@@ -226,7 +163,7 @@ func (om *OverlayManager) handleDeleteTopic(msg tea.Msg, client *kafkaadmin.Clie
 	return true, cmd
 }
 
-func (om *OverlayManager) handleProduceMessage(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ToastManager) (bool, tea.Cmd) {
+func (om *OverlayManager) handleProduceMessage(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
 	if message, ok := msg.(ui.ProduceMsg); ok {
 		om.Close()
 		ctx := context.Background()
@@ -244,7 +181,7 @@ func (om *OverlayManager) handleProduceMessage(msg tea.Msg, client *kafkaadmin.C
 	return true, cmd
 }
 
-func (om *OverlayManager) handleDownloadTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ToastManager) (bool, tea.Cmd) {
+func (om *OverlayManager) handleDownloadTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
 	if downloadMsg, ok := msg.(ui.DownloadTopicSubmittedMsg); ok {
 		if !downloadMsg.ValidPath {
 			return true, toastMgr.ShowError("Error! Download path is not valid")
@@ -325,7 +262,7 @@ func initialModel(bootstrapServers string, kafkaAdmin *kafkaadmin.Client) model 
 		currentView:      viewTopicsList,
 		topicViewModels:  make(map[string]*ui.TopicViewModel),
 		activeConsumers:  make(map[string]context.CancelFunc),
-		toastMgr:         newToastManager(),
+		toastMgr:         ui.NewToastManager(),
 		overlayMgr:       newOverlayManager(),
 	}
 }
