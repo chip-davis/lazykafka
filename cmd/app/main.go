@@ -288,8 +288,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "p": // produce message
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
+				topic := selectedItem.(topicItem)
+				m.selectedTopic = topic.name
 				m.activeOverlay = overlayProduceMessage
-				m.produceMessageForm = ui.NewProduceMessageForm(selectedItem.(topicItem).name)
+				m.produceMessageForm = ui.NewProduceMessageForm(topic.name)
 				return m, nil
 			}
 
