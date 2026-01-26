@@ -305,7 +305,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case "d", "x": // delete topic
+		case "x", "X": // delete topic
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
 				topic := selectedItem.(topicItem)
