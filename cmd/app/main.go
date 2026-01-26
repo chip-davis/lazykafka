@@ -22,6 +22,7 @@ const (
 	overlayCreateTopic
 	overlayDeleteTopic
 	overlayProduceMessage
+	overlayDownloadTopic
 )
 
 type viewState int
@@ -51,6 +52,7 @@ type model struct {
 	createTopicForm    ui.CreateTopicForm
 	deleteTopicForm    ui.DeleteTopicForm
 	produceMessageForm ui.ProduceMessageForm
+	downloadTopicForm  ui.DownloadTopicForm
 	selectedTopic      string
 
 	// Toast
@@ -242,6 +244,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.produceMessageForm = updatedForm.(ui.ProduceMessageForm)
 			return m, cmd
 
+		case overlayDownloadTopic:
+			if downloadMsg, ok := msg.(ui.DownloadTopicSubmittedMsg); ok {
+				if !downloadMsg.ValidPath {
+					m.toast = ui.NewToast("Error! Download path is not valid", ui.Error, ui.TopRight, 3)
+					m.showToast = true
+					return m, m.toast.Init()
+				}
+
+				m.activeOverlay = overlayNone
+				// TODO: actually download the topic here
+				m.toast = ui.NewToast("Download started!", ui.Success, ui.TopRight, 3)
+				m.showToast = true
+				return m, m.toast.Init()
+			}
+
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				if keyMsg.String() == "esc" {
+					m.activeOverlay = overlayNone
+					return m, nil
+				}
+			}
+
+			updatedForm, cmd := m.downloadTopicForm.Update(msg)
+			m.downloadTopicForm = updatedForm.(ui.DownloadTopicForm)
+			return m, cmd
+
 		case overlayDeleteTopic:
 			if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
 				m.activeOverlay = overlayNone
@@ -302,6 +330,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedTopic = topic.name
 				m.activeOverlay = overlayProduceMessage
 				m.produceMessageForm = ui.NewProduceMessageForm(topic.name)
+				return m, nil
+			}
+
+		case "d": // download topic
+			selectedItem := m.list.SelectedItem()
+			if selectedItem != nil {
+				topic := selectedItem.(topicItem)
+				m.selectedTopic = topic.name
+				m.activeOverlay = overlayDownloadTopic
+				m.downloadTopicForm = ui.NewDownloadTopicForm(topic.name)
 				return m, nil
 			}
 
@@ -394,7 +432,7 @@ func (m model) View() string {
 		Height(m.height - 8).
 		Render(m.list.View())
 
-	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • d/x: delete topic • p: produce message • q: quit")
+	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • x: delete topic • p: produce message • d: download topic • q: quit")
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
