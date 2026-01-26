@@ -21,6 +21,7 @@ const (
 	overlayNone overlayType = iota
 	overlayCreateTopic
 	overlayDeleteTopic
+	overlayProduceMessage
 )
 
 type viewState int
@@ -46,10 +47,11 @@ type model struct {
 	messageChan     chan *kgo.Record
 
 	// Overlay
-	activeOverlay   overlayType
-	createTopicForm ui.CreateTopicForm
-	deleteTopicForm ui.DeleteTopicForm
-	selectedTopic   string
+	activeOverlay      overlayType
+	createTopicForm    ui.CreateTopicForm
+	deleteTopicForm    ui.DeleteTopicForm
+	produceMessageForm ui.ProduceMessageForm
+	selectedTopic      string
 }
 
 type topicsLoadedMsg struct {
@@ -207,6 +209,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.createTopicForm = updatedForm.(ui.CreateTopicForm)
 			return m, cmd
 
+		case overlayProduceMessage:
+			if message, ok := msg.(ui.ProduceMsg); ok {
+				m.activeOverlay = overlayNone
+				ctx := context.Background()
+				record, err := m.client.BuildRecord(m.selectedTopic, message.PartitionNumber, message.KeySerde, message.ValueSerde, message.Key, message.Value, message.Headers)
+				if err != nil {
+					log.Errorf("Error: %v", err)
+				}
+				m.client.ProduceMessage(ctx, &record)
+			}
+
 		case overlayDeleteTopic:
 			if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
 				m.activeOverlay = overlayNone
@@ -259,6 +272,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeOverlay = overlayCreateTopic
 			m.createTopicForm = ui.NewCreateTopicForm()
 			return m, nil
+
+		case "p": // produce message
+			selectedItem := m.list.SelectedItem()
+			if selectedItem != nil {
+				m.activeOverlay = overlayProduceMessage
+				m.produceMessageForm = ui.NewProduceMessageForm(selectedItem.(topicItem).name)
+				return m, nil
+			}
 
 		case "d", "x": // delete topic
 			selectedItem := m.list.SelectedItem()
@@ -324,7 +345,7 @@ func (m model) View() string {
 		Height(m.height - 8).
 		Render(m.list.View())
 
-	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • d/x: delete topic • q: quit")
+	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • d/x: delete topic • p: produce message • q: quit")
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,

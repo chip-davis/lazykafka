@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -86,6 +87,36 @@ func (c *Client) DeleteTopic(ctx context.Context, topicName string) (kadm.Delete
 		return kadm.DeleteTopicResponse{}, err
 	}
 	return deleteTopicResponse, nil
+}
+
+func (c *Client) BuildRecord(topicName string, partitionNumber string, keySerde string, valueSerde string, key string, value string, headers string) (kgo.Record, error) {
+	if value == "" {
+		log.Errorf("Value must not be null")
+	}
+
+	partitionNumberInt, err := strconv.Atoi(partitionNumber)
+	if err != nil {
+		return kgo.Record{}, err
+	}
+
+	r := kgo.Record{
+		Partition: int32(partitionNumberInt),
+		Key:       []byte(key),
+		Value:     []byte(value),
+		Topic:     topicName,
+	}
+	return r, nil
+
+}
+
+func (c *Client) ProduceMessage(ctx context.Context, record *kgo.Record) {
+	ctx = context.Background()
+	c.kgoClient.Produce(ctx, record, func(r *kgo.Record, err error) {
+		if err != nil {
+			log.Errorf("Error producing message: %v", err)
+		}
+	})
+	c.kgoClient.Flush(ctx)
 }
 
 func (c *Client) ConsumeMessages(ctx context.Context, topicName string, recordChan chan<- *kgo.Record) error {
