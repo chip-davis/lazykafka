@@ -52,6 +52,10 @@ type model struct {
 	deleteTopicForm    ui.DeleteTopicForm
 	produceMessageForm ui.ProduceMessageForm
 	selectedTopic      string
+
+	// Toast
+	toast     ui.Toast
+	showToast bool
 }
 
 type topicsLoadedMsg struct {
@@ -260,6 +264,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
+		m.showToast = false
+		return m, nil
+	}
+
+	if m.showToast {
+		updatedToast, cmd := m.toast.Update(msg)
+		m.toast = updatedToast.(ui.Toast)
+		if !m.toast.IsVisible() {
+			m.showToast = false
+		}
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
 
 	case topicsLoadedMsg:
@@ -401,6 +419,34 @@ func (m model) View() string {
 			0,
 			0,
 		)
+	}
+
+	if m.showToast {
+		toastView := m.toast.View()
+		if toastView != "" {
+			var hPos, vPos overlay.Position
+			switch m.toast.Position {
+			case ui.TopRight:
+				hPos, vPos = overlay.Right, overlay.Top
+			case ui.BottomRight:
+				hPos, vPos = overlay.Right, overlay.Bottom
+			case ui.TopLeft:
+				hPos, vPos = overlay.Left, overlay.Top
+			case ui.BottomLeft:
+				hPos, vPos = overlay.Left, overlay.Bottom
+			case ui.Center:
+				hPos, vPos = overlay.Center, overlay.Center
+			}
+
+			return overlay.Composite(
+				toastView,
+				background,
+				hPos,
+				vPos,
+				2,
+				2,
+			)
+		}
 	}
 
 	return background
