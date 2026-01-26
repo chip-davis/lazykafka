@@ -40,12 +40,12 @@ func NewToast(message string, toastType ToastType, position Position, timeout in
 		ToastType: toastType,
 		Position:  position,
 		Visible:   true,
-		Time:      timeout * int(time.Second),
+		Time:      int(time.Duration(timeout) * time.Second),
 	}
 }
 
 func (t Toast) Init() tea.Cmd {
-	return tea.Tick(time.Duration(t.Position), func(time.Time) tea.Msg {
+	return tea.Tick(time.Duration(t.Time), func(time.Time) tea.Msg {
 		return ToastTimeoutMsg{}
 	})
 }

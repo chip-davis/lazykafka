@@ -222,7 +222,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					log.Errorf("Error: %v", err)
 				}
 				m.client.ProduceMessage(ctx, &record)
-				return m, nil
+				m.toast = ui.NewToast("Message produced successfully!", ui.Success, ui.TopRight, 3)
+				m.showToast = true
+				return m, m.toast.Init()
 			}
 
 			if keyMsg, ok := msg.(tea.KeyMsg); ok {
