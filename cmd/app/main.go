@@ -367,6 +367,16 @@ func (m model) View() string {
 			0,
 			0,
 		)
+	case overlayProduceMessage:
+		formView := m.produceMessageForm.View()
+		return overlay.Composite(
+			formView,
+			background,
+			overlay.Center,
+			overlay.Center,
+			0,
+			0,
+		)
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
 		return overlay.Composite(
