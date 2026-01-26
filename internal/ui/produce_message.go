@@ -6,7 +6,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var placeholders = []string{
+var fields = []string{
+	"PartitionNumber",
+	"KeySerde",
+	"ValueSerde",
+	"Key",
+	"Value",
+	"Headers",
+}
+
+var labels = []string{
 	"Partition Number",
 	"Key Serde",
 	"Value Serde",
@@ -49,29 +58,12 @@ type ProduceMsg struct {
 
 func NewProduceMessageForm(topicName string) ProduceMessageForm {
 
-	fields := []string{
-		"PartitionNumber",
-		"KeySerde",
-		"ValueSerde",
-		"Key",
-		"Value",
-		"Headers",
-	}
-
-	placeholders := []string{
-		"Partition Number",
-		"Key Serde",
-		"Value Serde",
-		"Key",
-		"Value",
-		"Headers",
-	}
-
 	inputs := make([]formInput, len(fields))
 	for i := range fields {
 		ti := textinput.New()
-		ti.Placeholder = placeholders[i]
-		if placeholders[i] != "Value" {
+		ti.Placeholder = labels[i]
+		ti.Width = 60
+		if labels[i] != "Value" {
 			ti.CharLimit = 100
 		}
 		inputs[i] = formInput{
@@ -86,6 +78,8 @@ func NewProduceMessageForm(topicName string) ProduceMessageForm {
 		topicName: topicName,
 		inputs:    inputs,
 		focused:   0,
+		width:     80,
+		height:    30,
 	}
 }
 
@@ -149,9 +143,15 @@ func (f ProduceMessageForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (f ProduceMessageForm) View() string {
 	title := FormTitleStyle.Render("Produce new message")
 
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241")).
+		MarginTop(1)
+
 	var renderedInputs []string
-	for _, fi := range f.inputs {
+	for i, fi := range f.inputs {
+		label := labelStyle.Render(labels[i])
 		input := fi.input.View()
+		renderedInputs = append(renderedInputs, label)
 		renderedInputs = append(renderedInputs, input)
 	}
 
@@ -172,6 +172,6 @@ func (f ProduceMessageForm) View() string {
 		f.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		content,
+		FormBoxStyle.Render(content),
 	)
 }

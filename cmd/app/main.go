@@ -218,7 +218,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					log.Errorf("Error: %v", err)
 				}
 				m.client.ProduceMessage(ctx, &record)
+				return m, nil
 			}
+
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				if keyMsg.String() == "esc" {
+					m.activeOverlay = overlayNone
+					return m, nil
+				}
+			}
+
+			updatedForm, cmd := m.produceMessageForm.Update(msg)
+			m.produceMessageForm = updatedForm.(ui.ProduceMessageForm)
+			return m, cmd
 
 		case overlayDeleteTopic:
 			if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
