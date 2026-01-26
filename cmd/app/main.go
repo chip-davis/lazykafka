@@ -157,6 +157,10 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
+	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
+		m.showToast = false
+	}
+
 	if m.currentView == viewTopicDetail {
 
 		if kafkaMsg, ok := msg.(kafkaMessageReceivedMsg); ok {
@@ -264,10 +268,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.deleteTopicForm = updatedForm.(ui.DeleteTopicForm)
 			return m, cmd
 		}
-	}
-
-	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
-		m.showToast = false
 	}
 
 	switch msg := msg.(type) {
