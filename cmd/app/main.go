@@ -22,6 +22,7 @@ const (
 	overlayCreateTopic
 	overlayDeleteTopic
 	overlayProduceMessage
+	overlayDownloadTopic
 )
 
 type viewState int
@@ -51,6 +52,7 @@ type model struct {
 	createTopicForm    ui.CreateTopicForm
 	deleteTopicForm    ui.DeleteTopicForm
 	produceMessageForm ui.ProduceMessageForm
+	downloadTopicForm  ui.DownloadTopicForm
 	selectedTopic      string
 
 	// Toast
@@ -64,6 +66,11 @@ type topicsLoadedMsg struct {
 
 type kafkaMessageReceivedMsg struct {
 	records []*kgo.Record
+}
+
+type downloadCompleteMsg struct {
+	success bool
+	err     error
 }
 
 type topicItem struct {
@@ -148,6 +155,17 @@ func fetchTopicsCmd(client *kafkaadmin.Client) tea.Cmd {
 			topics = append(topics, topicItem{name: topicName})
 		}
 		return topicsLoadedMsg{items: topics}
+	}
+}
+
+func downloadTopicCmd(client *kafkaadmin.Client, topicName, filePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := client.DownloadTopic(ctx, topicName, filePath)
+		if err != nil {
+			return downloadCompleteMsg{success: false, err: err}
+		}
+		return downloadCompleteMsg{success: true, err: nil}
 	}
 }
 
@@ -242,6 +260,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.produceMessageForm = updatedForm.(ui.ProduceMessageForm)
 			return m, cmd
 
+		case overlayDownloadTopic:
+			if downloadMsg, ok := msg.(ui.DownloadTopicSubmittedMsg); ok {
+				if !downloadMsg.ValidPath {
+					m.toast = ui.NewToast("Error! Download path is not valid", ui.Error, ui.TopRight, 3)
+					m.showToast = true
+					return m, m.toast.Init()
+				}
+
+				m.activeOverlay = overlayNone
+				m.toast = ui.NewToast("Download started...", ui.Info, ui.TopRight, 3)
+				m.showToast = true
+				return m, tea.Batch(
+					m.toast.Init(),
+					downloadTopicCmd(m.client, downloadMsg.TopicName, downloadMsg.DownloadPath),
+				)
+			}
+
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				if keyMsg.String() == "esc" {
+					m.activeOverlay = overlayNone
+					return m, nil
+				}
+			}
+
+			updatedForm, cmd := m.downloadTopicForm.Update(msg)
+			m.downloadTopicForm = updatedForm.(ui.DownloadTopicForm)
+			return m, cmd
+
 		case overlayDeleteTopic:
 			if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
 				m.activeOverlay = overlayNone
@@ -276,6 +322,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetItems(msg.items)
 		return m, nil
 
+	case downloadCompleteMsg:
+		if msg.success {
+			m.toast = ui.NewToast("Download completed successfully!", ui.Success, ui.TopRight, 3)
+		} else {
+			m.toast = ui.NewToast(fmt.Sprintf("Download failed: %v", msg.err), ui.Error, ui.TopRight, 5)
+		}
+		m.showToast = true
+		return m, m.toast.Init()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -305,7 +360,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case "d", "x": // delete topic
+		case "d": // download topic
+			selectedItem := m.list.SelectedItem()
+			if selectedItem != nil {
+				topic := selectedItem.(topicItem)
+				m.selectedTopic = topic.name
+				m.activeOverlay = overlayDownloadTopic
+				m.downloadTopicForm = ui.NewDownloadTopicForm(topic.name)
+				return m, nil
+			}
+
+		case "x", "X": // delete topic
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
 				topic := selectedItem.(topicItem)
@@ -394,7 +459,7 @@ func (m model) View() string {
 		Height(m.height - 8).
 		Render(m.list.View())
 
-	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • d/x: delete topic • p: produce message • q: quit")
+	help := ui.HelpStyle.Render("↑/↓ j/k: navigate • /: filter • c: create topic • x: delete topic • p: produce message • d: download topic • q: quit")
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -426,6 +491,18 @@ func (m model) View() string {
 			0,
 			0,
 		))
+
+	case overlayDownloadTopic:
+		formView := m.downloadTopicForm.View()
+		return m.toastWrapper(overlay.Composite(
+			formView,
+			background,
+			overlay.Center,
+			overlay.Center,
+			0,
+			0,
+		))
+
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
 		return m.toastWrapper(overlay.Composite(
