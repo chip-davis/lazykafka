@@ -68,6 +68,11 @@ type kafkaMessageReceivedMsg struct {
 	records []*kgo.Record
 }
 
+type downloadCompleteMsg struct {
+	success bool
+	err     error
+}
+
 type topicItem struct {
 	name string
 }
@@ -150,6 +155,17 @@ func fetchTopicsCmd(client *kafkaadmin.Client) tea.Cmd {
 			topics = append(topics, topicItem{name: topicName})
 		}
 		return topicsLoadedMsg{items: topics}
+	}
+}
+
+func downloadTopicCmd(client *kafkaadmin.Client, topicName, filePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := client.DownloadTopic(ctx, topicName, filePath)
+		if err != nil {
+			return downloadCompleteMsg{success: false, err: err}
+		}
+		return downloadCompleteMsg{success: true, err: nil}
 	}
 }
 
@@ -252,10 +268,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.toast.Init()
 				}
 
-				// TODO: actually download the topic here
-				m.toast = ui.NewToast("Download started!", ui.Success, ui.TopRight, 3)
+				m.activeOverlay = overlayNone
+				m.toast = ui.NewToast("Download started...", ui.Info, ui.TopRight, 3)
 				m.showToast = true
-				return m, m.toast.Init()
+				return m, tea.Batch(
+					m.toast.Init(),
+					downloadTopicCmd(m.client, downloadMsg.TopicName, downloadMsg.DownloadPath),
+				)
 			}
 
 			if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -302,6 +321,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case topicsLoadedMsg:
 		m.list.SetItems(msg.items)
 		return m, nil
+
+	case downloadCompleteMsg:
+		if msg.success {
+			m.toast = ui.NewToast("Download completed successfully!", ui.Success, ui.TopRight, 3)
+		} else {
+			m.toast = ui.NewToast(fmt.Sprintf("Download failed: %v", msg.err), ui.Error, ui.TopRight, 5)
+		}
+		m.showToast = true
+		return m, m.toast.Init()
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width

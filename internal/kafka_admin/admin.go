@@ -2,6 +2,7 @@ package kafkaadmin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -157,6 +158,82 @@ func (c *Client) ConsumeMessages(ctx context.Context, topicName string, recordCh
 				return
 			}
 		})
+	}
+}
+
+func (c *Client) DownloadTopic(ctx context.Context, topicName string, filePath string) error {
+	opts := []kgo.Opt{
+		kgo.ConsumeTopics(topicName),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.SeedBrokers(c.bootstraps),
+	}
+
+	cl, err := kgo.NewClient(opts...)
+	if err != nil {
+		return fmt.Errorf("unable to create client: %w", err)
+	}
+	defer cl.Close()
+
+	// Create file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("unable to create file: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+
+	file.WriteString("[\n")
+	firstRecord := true
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			file.WriteString("\n]")
+			return nil
+		default:
+		}
+
+		fetches := cl.PollFetches(timeoutCtx)
+		if fetches.IsClientClosed() {
+			file.WriteString("\n]")
+			return nil
+		}
+
+		if errs := fetches.Errors(); len(errs) > 0 {
+			for _, err := range errs {
+				log.Errorf("fetch error: %v", err)
+			}
+			continue
+		}
+
+		recordCount := 0
+		fetches.EachRecord(func(record *kgo.Record) {
+			recordCount++
+
+			if !firstRecord {
+				file.WriteString(",\n")
+			}
+			firstRecord = false
+
+			recordData := map[string]interface{}{
+				"partition": record.Partition,
+				"offset":    record.Offset,
+				"timestamp": record.Timestamp.Format(time.RFC3339),
+				"key":       string(record.Key),
+				"value":     string(record.Value),
+			}
+
+			encoder.Encode(recordData)
+		})
+
+		if recordCount == 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 }
 
