@@ -268,16 +268,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
 		m.showToast = false
-		return m, nil
-	}
-
-	if m.showToast {
-		updatedToast, cmd := m.toast.Update(msg)
-		m.toast = updatedToast.(ui.Toast)
-		if !m.toast.IsVisible() {
-			m.showToast = false
-		}
-		return m, cmd
 	}
 
 	switch msg := msg.(type) {
