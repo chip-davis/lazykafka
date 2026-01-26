@@ -44,27 +44,6 @@ type model struct {
 	toastMgr app.ToastManager
 }
 
-type topicsLoadedMsg struct {
-	items []list.Item
-}
-
-type kafkaMessageReceivedMsg struct {
-	records []*kgo.Record
-}
-
-type downloadCompleteMsg struct {
-	success bool
-	err     error
-}
-
-type topicItem struct {
-	name string
-}
-
-func (t topicItem) Title() string       { return t.name }
-func (t topicItem) Description() string { return "" }
-func (t topicItem) FilterValue() string { return t.name }
-
 func initialModel(bootstrapServers string, kafkaAdmin *kafkaadmin.Client) model {
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Topics"
@@ -84,76 +63,8 @@ func initialModel(bootstrapServers string, kafkaAdmin *kafkaadmin.Client) model 
 	}
 }
 
-func startConsumerCmd(client *kafkaadmin.Client, ctx context.Context, topicName string, recordChan chan *kgo.Record) tea.Cmd {
-	go func() {
-		err := client.ConsumeMessages(ctx, topicName, recordChan)
-		if err != nil && err != context.Canceled {
-			log.Errorf("Consumer error: %v", err)
-		}
-		close(recordChan)
-	}()
-
-	return waitForMessageCmd(ctx, recordChan)
-}
-
-func waitForMessageCmd(ctx context.Context, recordChan chan *kgo.Record) tea.Cmd {
-	return func() tea.Msg {
-		batch := make([]*kgo.Record, 0, 100)
-
-		select {
-		case record, ok := <-recordChan:
-			if !ok {
-				return nil
-			}
-			batch = append(batch, record)
-		case <-ctx.Done():
-			return nil
-		}
-
-		for len(batch) < 100 {
-			select {
-			case record, ok := <-recordChan:
-				if !ok {
-					return kafkaMessageReceivedMsg{records: batch}
-				}
-				batch = append(batch, record)
-			default:
-				return kafkaMessageReceivedMsg{records: batch}
-			}
-		}
-
-		return kafkaMessageReceivedMsg{records: batch}
-	}
-}
-
-func fetchTopicsCmd(client *kafkaadmin.Client) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		topicDetails, err := client.ListTopics(ctx)
-		if err != nil {
-			return nil
-		}
-		topics := make([]list.Item, 0, len(topicDetails))
-		for topicName := range topicDetails {
-			topics = append(topics, topicItem{name: topicName})
-		}
-		return topicsLoadedMsg{items: topics}
-	}
-}
-
-func downloadTopicCmd(client *kafkaadmin.Client, topicName, filePath string) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		err := client.DownloadTopic(ctx, topicName, filePath)
-		if err != nil {
-			return downloadCompleteMsg{success: false, err: err}
-		}
-		return downloadCompleteMsg{success: true, err: nil}
-	}
-}
-
 func (m model) Init() tea.Cmd {
-	return fetchTopicsCmd(m.client)
+	return app.FetchTopicsCmd(m.client)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -164,12 +75,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.currentView == viewTopicDetail {
 
-		if kafkaMsg, ok := msg.(kafkaMessageReceivedMsg); ok {
-			if len(kafkaMsg.records) > 0 {
+		if kafkaMsg, ok := msg.(app.KafkaMessageReceivedMsg); ok {
+			if len(kafkaMsg.Records) > 0 {
 				if vm, exists := m.topicViewModels[m.selectedTopic]; exists {
-					vm.AddMessages(kafkaMsg.records)
+					vm.AddMessages(kafkaMsg.Records)
 				}
-				return m, waitForMessageCmd(m.consumerCtx, m.messageChan)
+				return m, app.WaitForMessageCmd(m.consumerCtx, m.messageChan)
 			}
 		}
 
@@ -193,21 +104,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if handled, cmd := m.overlayMgr.Update(msg, m.client, &m.toastMgr, fetchTopicsCmd, downloadTopicCmd); handled {
+	if handled, cmd := m.overlayMgr.Update(msg, m.client, &m.toastMgr, app.FetchTopicsCmd, app.DownloadTopicCmd); handled {
 		return m, cmd
 	}
 
 	switch msg := msg.(type) {
 
-	case topicsLoadedMsg:
-		m.list.SetItems(msg.items)
+	case app.TopicsLoadedMsg:
+		m.list.SetItems(msg.Items)
 		return m, nil
 
-	case downloadCompleteMsg:
-		if msg.success {
+	case app.DownloadCompleteMsg:
+		if msg.Success {
 			return m, m.toastMgr.ShowSuccess("Download completed successfully!")
 		} else {
-			return m, m.toastMgr.ShowError(fmt.Sprintf("Download failed: %v", msg.err))
+			return m, m.toastMgr.ShowError(fmt.Sprintf("Download failed: %v", msg.Err))
 		}
 
 	case tea.WindowSizeMsg:
@@ -231,48 +142,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "p": // produce message
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
-				topic := selectedItem.(topicItem)
-				m.selectedTopic = topic.name
-				m.overlayMgr.OpenProduceMessage(topic.name)
+				topic := selectedItem.(app.TopicItem)
+				m.selectedTopic = topic.Name
+				m.overlayMgr.OpenProduceMessage(topic.Name)
 				return m, nil
 			}
 
 		case "d": // download topic
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
-				topic := selectedItem.(topicItem)
-				m.selectedTopic = topic.name
-				m.overlayMgr.OpenDownloadTopic(topic.name)
+				topic := selectedItem.(app.TopicItem)
+				m.selectedTopic = topic.Name
+				m.overlayMgr.OpenDownloadTopic(topic.Name)
 				return m, nil
 			}
 
 		case "x", "X": // delete topic
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
-				topic := selectedItem.(topicItem)
-				m.selectedTopic = topic.name
-				m.overlayMgr.OpenDeleteTopic(topic.name)
+				topic := selectedItem.(app.TopicItem)
+				m.selectedTopic = topic.Name
+				m.overlayMgr.OpenDeleteTopic(topic.Name)
 				return m, nil
 			}
 
 		case "enter":
 			selectedItem := m.list.SelectedItem()
 			if selectedItem != nil {
-				topic := selectedItem.(topicItem)
-				m.selectedTopic = topic.name
+				topic := selectedItem.(app.TopicItem)
+				m.selectedTopic = topic.Name
 				m.currentView = viewTopicDetail
 
-				if _, exists := m.topicViewModels[topic.name]; !exists {
-					m.topicViewModels[topic.name] = ui.NewTopicViewModel(topic.name, m.width, m.height)
+				if _, exists := m.topicViewModels[topic.Name]; !exists {
+					m.topicViewModels[topic.Name] = ui.NewTopicViewModel(topic.Name, m.width, m.height)
 				}
 
-				if _, exists := m.activeConsumers[topic.name]; !exists {
+				if _, exists := m.activeConsumers[topic.Name]; !exists {
 					m.consumerCtx, m.consumerCancel = context.WithCancel(context.Background())
 					m.messageChan = make(chan *kgo.Record, 100)
 
-					m.activeConsumers[topic.name] = m.consumerCancel
+					m.activeConsumers[topic.Name] = m.consumerCancel
 
-					return m, startConsumerCmd(m.client, m.consumerCtx, topic.name, m.messageChan)
+					return m, app.StartConsumerCmd(m.client, m.consumerCtx, topic.Name, m.messageChan)
 				}
 
 				return m, nil
