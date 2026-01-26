@@ -55,9 +55,70 @@ type model struct {
 	downloadTopicForm  ui.DownloadTopicForm
 	selectedTopic      string
 
-	// Toast
+	toastMgr ToastManager
+}
+
+type ToastManager struct {
 	toast     ui.Toast
 	showToast bool
+}
+
+func newToastManager() ToastManager {
+	return ToastManager{
+		showToast: false,
+	}
+}
+
+func (tm *ToastManager) HandleMessage(msg tea.Msg) bool {
+	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
+		tm.showToast = false
+		return true
+	}
+	return false
+}
+
+func (tm *ToastManager) ShowSuccess(message string) tea.Cmd {
+	tm.toast = ui.NewToast(message, ui.Success, ui.TopRight, 3)
+	tm.showToast = true
+	return tm.toast.Init()
+}
+
+func (tm *ToastManager) ShowError(message string) tea.Cmd {
+	tm.toast = ui.NewToast(message, ui.Error, ui.TopRight, 5)
+	tm.showToast = true
+	return tm.toast.Init()
+}
+
+func (tm *ToastManager) ShowInfo(message string) tea.Cmd {
+	tm.toast = ui.NewToast(message, ui.Info, ui.TopRight, 3)
+	tm.showToast = true
+	return tm.toast.Init()
+}
+
+func (tm *ToastManager) Wrap(content string) string {
+	if !tm.showToast {
+		return content
+	}
+
+	toastView := tm.toast.View()
+	if toastView == "" {
+		return content
+	}
+
+	var hPos, vPos overlay.Position
+	switch tm.toast.Position {
+	case ui.TopRight:
+		hPos, vPos = overlay.Right, overlay.Top
+	case ui.BottomRight:
+		hPos, vPos = overlay.Right, overlay.Bottom
+	case ui.TopLeft:
+		hPos, vPos = overlay.Left, overlay.Top
+	case ui.BottomLeft:
+		hPos, vPos = overlay.Left, overlay.Bottom
+	case ui.Center:
+		hPos, vPos = overlay.Center, overlay.Center
+	}
+	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
 }
 
 type topicsLoadedMsg struct {
@@ -98,6 +159,7 @@ func initialModel(bootstrapServers string, kafkaAdmin *kafkaadmin.Client) model 
 		activeConsumers:  make(map[string]context.CancelFunc),
 		createTopicForm:  ui.NewCreateTopicForm(),
 		deleteTopicForm:  ui.NewDeleteTopicForm(""),
+		toastMgr:         newToastManager(),
 	}
 }
 
@@ -175,8 +237,8 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
-	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
-		m.showToast = false
+	if m.toastMgr.HandleMessage(msg) {
+		return m, nil
 	}
 
 	if m.currentView == viewTopicDetail {
@@ -244,9 +306,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					log.Errorf("Error: %v", err)
 				}
 				m.client.ProduceMessage(ctx, &record)
-				m.toast = ui.NewToast("Message produced successfully!", ui.Success, ui.TopRight, 3)
-				m.showToast = true
-				return m, m.toast.Init()
+				return m, m.toastMgr.ShowSuccess("Message produced successfully!")
 			}
 
 			if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -263,16 +323,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case overlayDownloadTopic:
 			if downloadMsg, ok := msg.(ui.DownloadTopicSubmittedMsg); ok {
 				if !downloadMsg.ValidPath {
-					m.toast = ui.NewToast("Error! Download path is not valid", ui.Error, ui.TopRight, 3)
-					m.showToast = true
-					return m, m.toast.Init()
+					return m, m.toastMgr.ShowError("Error! Download path is not valid")
 				}
 
 				m.activeOverlay = overlayNone
-				m.toast = ui.NewToast("Download started...", ui.Info, ui.TopRight, 3)
-				m.showToast = true
+				m.toastMgr.ShowInfo("Download started...")
 				return m, tea.Batch(
-					m.toast.Init(),
+					m.toastMgr.ShowSuccess("Download complete!"),
 					downloadTopicCmd(m.client, downloadMsg.TopicName, downloadMsg.DownloadPath),
 				)
 			}
@@ -324,12 +381,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case downloadCompleteMsg:
 		if msg.success {
-			m.toast = ui.NewToast("Download completed successfully!", ui.Success, ui.TopRight, 3)
+			return m, m.toastMgr.ShowSuccess("Download completed successfully!")
 		} else {
-			m.toast = ui.NewToast(fmt.Sprintf("Download failed: %v", msg.err), ui.Error, ui.TopRight, 5)
+			return m, m.toastMgr.ShowError(fmt.Sprintf("Download failed: %v", msg.err))
 		}
-		m.showToast = true
-		return m, m.toast.Init()
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -409,32 +464,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
-
-func (m model) toastWrapper(content string) string {
-	if !m.showToast {
-		return content
-	}
-
-	toastView := m.toast.View()
-	if toastView == "" {
-		return content
-	}
-	var hPos, vPos overlay.Position
-	switch m.toast.Position {
-	case ui.TopRight:
-		hPos, vPos = overlay.Right, overlay.Top
-	case ui.BottomRight:
-		hPos, vPos = overlay.Right, overlay.Bottom
-	case ui.TopLeft:
-		hPos, vPos = overlay.Left, overlay.Top
-	case ui.BottomLeft:
-		hPos, vPos = overlay.Left, overlay.Bottom
-	case ui.Center:
-		hPos, vPos = overlay.Center, overlay.Center
-	}
-	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
-}
-
 func (m model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -442,9 +471,9 @@ func (m model) View() string {
 
 	if m.currentView == viewTopicDetail {
 		if vm, exists := m.topicViewModels[m.selectedTopic]; exists {
-			return m.toastWrapper(vm.View())
+			return m.toastMgr.Wrap(vm.View())
 		}
-		return m.toastWrapper("Error: Topic view model not found")
+		return m.toastMgr.Wrap("Error: Topic view model not found")
 	}
 
 	header := ui.HeaderStyle.Width(m.width - 4).Render(
@@ -473,7 +502,7 @@ func (m model) View() string {
 	switch m.activeOverlay {
 	case overlayCreateTopic:
 		formView := m.createTopicForm.View()
-		return m.toastWrapper(overlay.Composite(
+		return m.toastMgr.Wrap(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
@@ -483,7 +512,7 @@ func (m model) View() string {
 		))
 	case overlayProduceMessage:
 		formView := m.produceMessageForm.View()
-		return m.toastWrapper(overlay.Composite(
+		return m.toastMgr.Wrap(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
@@ -494,7 +523,7 @@ func (m model) View() string {
 
 	case overlayDownloadTopic:
 		formView := m.downloadTopicForm.View()
-		return m.toastWrapper(overlay.Composite(
+		return m.toastMgr.Wrap(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
@@ -505,7 +534,7 @@ func (m model) View() string {
 
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
-		return m.toastWrapper(overlay.Composite(
+		return m.toastMgr.Wrap(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
@@ -515,7 +544,7 @@ func (m model) View() string {
 		))
 	}
 
-	return m.toastWrapper(background)
+	return m.toastMgr.Wrap(background)
 }
 
 func main() {
