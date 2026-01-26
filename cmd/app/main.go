@@ -345,6 +345,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) toastWrapper(content string) string {
+	if !m.showToast {
+		return content
+	}
+
+	toastView := m.toast.View()
+	if toastView == "" {
+		return content
+	}
+	var hPos, vPos overlay.Position
+	switch m.toast.Position {
+	case ui.TopRight:
+		hPos, vPos = overlay.Right, overlay.Top
+	case ui.BottomRight:
+		hPos, vPos = overlay.Right, overlay.Bottom
+	case ui.TopLeft:
+		hPos, vPos = overlay.Left, overlay.Top
+	case ui.BottomLeft:
+		hPos, vPos = overlay.Left, overlay.Bottom
+	case ui.Center:
+		hPos, vPos = overlay.Center, overlay.Center
+	}
+	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
+}
+
 func (m model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -352,9 +377,9 @@ func (m model) View() string {
 
 	if m.currentView == viewTopicDetail {
 		if vm, exists := m.topicViewModels[m.selectedTopic]; exists {
-			return vm.View()
+			return m.toastWrapper(vm.View())
 		}
-		return "Error: Topic view model not found"
+		return m.toastWrapper("Error: Topic view model not found")
 	}
 
 	header := ui.HeaderStyle.Width(m.width - 4).Render(
@@ -383,65 +408,37 @@ func (m model) View() string {
 	switch m.activeOverlay {
 	case overlayCreateTopic:
 		formView := m.createTopicForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	case overlayProduceMessage:
 		formView := m.produceMessageForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	case overlayDeleteTopic:
 		formView := m.deleteTopicForm.View()
-		return overlay.Composite(
+		return m.toastWrapper(overlay.Composite(
 			formView,
 			background,
 			overlay.Center,
 			overlay.Center,
 			0,
 			0,
-		)
+		))
 	}
 
-	if m.showToast {
-		toastView := m.toast.View()
-		if toastView != "" {
-			var hPos, vPos overlay.Position
-			switch m.toast.Position {
-			case ui.TopRight:
-				hPos, vPos = overlay.Right, overlay.Top
-			case ui.BottomRight:
-				hPos, vPos = overlay.Right, overlay.Bottom
-			case ui.TopLeft:
-				hPos, vPos = overlay.Left, overlay.Top
-			case ui.BottomLeft:
-				hPos, vPos = overlay.Left, overlay.Bottom
-			case ui.Center:
-				hPos, vPos = overlay.Center, overlay.Center
-			}
-
-			return overlay.Composite(
-				toastView,
-				background,
-				hPos,
-				vPos,
-				2,
-				2,
-			)
-		}
-	}
-
-	return background
+	return m.toastWrapper(background)
 }
 
 func main() {
