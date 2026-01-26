@@ -9,20 +9,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
-	overlay "github.com/rmhubbert/bubbletea-overlay"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"mojosoftware.dev/lazykafka/internal/app"
 	kafkaadmin "mojosoftware.dev/lazykafka/internal/kafka_admin"
 	"mojosoftware.dev/lazykafka/internal/ui"
-)
-
-type overlayType int
-
-const (
-	overlayNone overlayType = iota
-	overlayCreateTopic
-	overlayDeleteTopic
-	overlayProduceMessage
-	overlayDownloadTopic
 )
 
 type viewState int
@@ -48,183 +38,10 @@ type model struct {
 	messageChan     chan *kgo.Record
 
 	// Overlay
-	overlayMgr    OverlayManager
+	overlayMgr    app.OverlayManager
 	selectedTopic string
 
-	toastMgr ui.ToastManager
-}
-
-type OverlayManager struct {
-	active             overlayType
-	createTopicForm    ui.CreateTopicForm
-	deleteTopicForm    ui.DeleteTopicForm
-	produceMessageForm ui.ProduceMessageForm
-	downloadTopicForm  ui.DownloadTopicForm
-	selectedTopic      string
-}
-
-func newOverlayManager() OverlayManager {
-	return OverlayManager{
-		active:          overlayNone,
-		createTopicForm: ui.NewCreateTopicForm(),
-		deleteTopicForm: ui.NewDeleteTopicForm(""),
-	}
-}
-
-func (om *OverlayManager) IsActive() bool {
-	return om.active != overlayNone
-}
-
-func (om *OverlayManager) Close() {
-	om.active = overlayNone
-}
-
-func (om *OverlayManager) OpenCreateTopic() {
-	om.active = overlayCreateTopic
-	om.createTopicForm = ui.NewCreateTopicForm()
-}
-
-func (om *OverlayManager) OpenDeleteTopic(topicName string) {
-	om.active = overlayDeleteTopic
-	om.selectedTopic = topicName
-	om.deleteTopicForm = ui.NewDeleteTopicForm(topicName)
-}
-
-func (om *OverlayManager) OpenProduceMessage(topicName string) {
-	om.active = overlayProduceMessage
-	om.selectedTopic = topicName
-	om.produceMessageForm = ui.NewProduceMessageForm(topicName)
-}
-
-func (om *OverlayManager) OpenDownloadTopic(topicName string) {
-	om.active = overlayDownloadTopic
-	om.selectedTopic = topicName
-	om.downloadTopicForm = ui.NewDownloadTopicForm(topicName)
-}
-
-func (om *OverlayManager) Update(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
-	if !om.IsActive() {
-		return false, nil
-	}
-
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if keyMsg.String() == "esc" {
-			om.Close()
-			return true, nil
-		}
-	}
-
-	switch om.active {
-	case overlayCreateTopic:
-		return om.handleCreateTopic(msg, client, toastMgr)
-	case overlayDeleteTopic:
-		return om.handleDeleteTopic(msg, client, toastMgr)
-	case overlayProduceMessage:
-		return om.handleProduceMessage(msg, client, toastMgr)
-	case overlayDownloadTopic:
-		return om.handleDownloadTopic(msg, client, toastMgr)
-	}
-	return false, nil
-}
-
-func (om *OverlayManager) handleCreateTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
-	if topic, ok := msg.(ui.TopicSubmittedMsg); ok {
-		om.Close()
-		ctx := context.Background()
-		_, err := client.CreateTopic(ctx, topic.TopicName)
-		if err != nil {
-			log.Errorf("Failed to create topic: %v", err)
-			return true, nil
-		}
-		return true, fetchTopicsCmd(client)
-	}
-
-	updatedForm, cmd := om.createTopicForm.Update(msg)
-	om.createTopicForm = updatedForm.(ui.CreateTopicForm)
-	return true, cmd
-}
-
-func (om *OverlayManager) handleDeleteTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
-	if deletedMsg, ok := msg.(ui.TopicDeleteMsg); ok {
-		om.Close()
-		if deletedMsg.Confirmed {
-			ctx := context.Background()
-			_, err := client.DeleteTopic(ctx, om.selectedTopic)
-			if err != nil {
-				log.Errorf("Failed to delete topic: %v", err)
-				return true, nil
-			}
-			return true, fetchTopicsCmd(client)
-		}
-		return true, nil
-	}
-	updatedForm, cmd := om.deleteTopicForm.Update(msg)
-	om.deleteTopicForm = updatedForm.(ui.DeleteTopicForm)
-	return true, cmd
-}
-
-func (om *OverlayManager) handleProduceMessage(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
-	if message, ok := msg.(ui.ProduceMsg); ok {
-		om.Close()
-		ctx := context.Background()
-		record, err := client.BuildRecord(om.selectedTopic, message.PartitionNumber, message.KeySerde, message.ValueSerde,
-			message.Key, message.Value, message.Headers)
-		if err != nil {
-			log.Errorf("Error: %v", err)
-		}
-		client.ProduceMessage(ctx, &record)
-		return true, toastMgr.ShowSuccess("Message produced successfully!")
-	}
-
-	updatedForm, cmd := om.produceMessageForm.Update(msg)
-	om.produceMessageForm = updatedForm.(ui.ProduceMessageForm)
-	return true, cmd
-}
-
-func (om *OverlayManager) handleDownloadTopic(msg tea.Msg, client *kafkaadmin.Client, toastMgr *ui.ToastManager) (bool, tea.Cmd) {
-	if downloadMsg, ok := msg.(ui.DownloadTopicSubmittedMsg); ok {
-		if !downloadMsg.ValidPath {
-			return true, toastMgr.ShowError("Error! Download path is not valid")
-		}
-
-		om.Close()
-		return true, tea.Batch(
-			toastMgr.ShowInfo("Download started..."),
-			downloadTopicCmd(client, downloadMsg.TopicName, downloadMsg.DownloadPath),
-		)
-	}
-
-	updatedForm, cmd := om.downloadTopicForm.Update(msg)
-	om.downloadTopicForm = updatedForm.(ui.DownloadTopicForm)
-	return true, cmd
-}
-
-func (om *OverlayManager) View(background string) string {
-	if !om.IsActive() {
-		return background
-	}
-
-	var formView string
-	switch om.active {
-	case overlayCreateTopic:
-		formView = om.createTopicForm.View()
-	case overlayDeleteTopic:
-		formView = om.deleteTopicForm.View()
-	case overlayProduceMessage:
-		formView = om.produceMessageForm.View()
-	case overlayDownloadTopic:
-		formView = om.downloadTopicForm.View()
-	default:
-		return background
-	}
-	return overlay.Composite(
-		formView,
-		background,
-		overlay.Center,
-		overlay.Center,
-		0,
-		0,
-	)
+	toastMgr app.ToastManager
 }
 
 type topicsLoadedMsg struct {
@@ -262,8 +79,8 @@ func initialModel(bootstrapServers string, kafkaAdmin *kafkaadmin.Client) model 
 		currentView:      viewTopicsList,
 		topicViewModels:  make(map[string]*ui.TopicViewModel),
 		activeConsumers:  make(map[string]context.CancelFunc),
-		toastMgr:         ui.NewToastManager(),
-		overlayMgr:       newOverlayManager(),
+		toastMgr:         app.NewToastManager(),
+		overlayMgr:       app.NewOverlayManager(),
 	}
 }
 
@@ -376,7 +193,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if handled, cmd := m.overlayMgr.Update(msg, m.client, &m.toastMgr); handled {
+	if handled, cmd := m.overlayMgr.Update(msg, m.client, &m.toastMgr, fetchTopicsCmd, downloadTopicCmd); handled {
 		return m, cmd
 	}
 

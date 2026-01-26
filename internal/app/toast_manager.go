@@ -1,12 +1,13 @@
-package ui
+package app
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	overlay "github.com/rmhubbert/bubbletea-overlay"
+	"mojosoftware.dev/lazykafka/internal/ui"
 )
 
 type ToastManager struct {
-	toast     Toast
+	toast     ui.Toast
 	showToast bool
 }
 
@@ -17,7 +18,7 @@ func NewToastManager() ToastManager {
 }
 
 func (tm *ToastManager) HandleMessage(msg tea.Msg) bool {
-	if _, ok := msg.(ToastTimeoutMsg); ok {
+	if _, ok := msg.(ui.ToastTimeoutMsg); ok {
 		tm.showToast = false
 		return true
 	}
@@ -25,19 +26,19 @@ func (tm *ToastManager) HandleMessage(msg tea.Msg) bool {
 }
 
 func (tm *ToastManager) ShowSuccess(message string) tea.Cmd {
-	tm.toast = NewToast(message, Success, TopRight, 3)
+	tm.toast = ui.NewToast(message, ui.Success, ui.TopRight, 3)
 	tm.showToast = true
 	return tm.toast.Init()
 }
 
 func (tm *ToastManager) ShowError(message string) tea.Cmd {
-	tm.toast = NewToast(message, Error, TopRight, 5)
+	tm.toast = ui.NewToast(message, ui.Error, ui.TopRight, 5)
 	tm.showToast = true
 	return tm.toast.Init()
 }
 
 func (tm *ToastManager) ShowInfo(message string) tea.Cmd {
-	tm.toast = NewToast(message, Info, TopRight, 3)
+	tm.toast = ui.NewToast(message, ui.Info, ui.TopRight, 3)
 	tm.showToast = true
 	return tm.toast.Init()
 }
@@ -54,15 +55,15 @@ func (tm *ToastManager) Wrap(content string) string {
 
 	var hPos, vPos overlay.Position
 	switch tm.toast.Position {
-	case TopRight:
+	case ui.TopRight:
 		hPos, vPos = overlay.Right, overlay.Top
-	case BottomRight:
+	case ui.BottomRight:
 		hPos, vPos = overlay.Right, overlay.Bottom
-	case TopLeft:
+	case ui.TopLeft:
 		hPos, vPos = overlay.Left, overlay.Top
-	case BottomLeft:
+	case ui.BottomLeft:
 		hPos, vPos = overlay.Left, overlay.Bottom
-	case Center:
+	case ui.Center:
 		hPos, vPos = overlay.Center, overlay.Center
 	}
 	return overlay.Composite(toastView, content, hPos, vPos, 2, 2)
