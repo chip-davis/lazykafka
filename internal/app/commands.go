@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,36 +44,44 @@ func StartConsumerCmd(client *kafkaadmin.Client, ctx context.Context, topicName 
 	return WaitForMessageCmd(ctx, recordChan)
 }
 
-func WaitForMessageCmd(ctx context.Context, recordChan chan *kgo.Record) tea.Cmd {
+func WaitForMessageCmd(
+	ctx context.Context,
+	recordChan <-chan *kgo.Record,
+) tea.Cmd {
 	return func() tea.Msg {
-		batch := make([]*kgo.Record, 0, 1000)
+		const maxBatch = 10000
+		const maxWait = 100 * time.Millisecond
 
-		select {
-		case record, ok := <-recordChan:
-			if !ok {
-				return nil
-			}
-			batch = append(batch, record)
-		case <-ctx.Done():
-			return nil
-		}
+		batch := make([]*kgo.Record, 0, maxBatch)
+		timer := time.NewTimer(maxWait)
+		defer timer.Stop()
 
-		for len(batch) < 1000 {
+		for {
 			select {
-			case record, ok := <-recordChan:
+			case r, ok := <-recordChan:
 				if !ok {
+					if len(batch) > 0 {
+						return KafkaMessageReceivedMsg{Records: batch}
+					}
+					return nil
+				}
+				batch = append(batch, r)
+				if len(batch) >= maxBatch {
 					return KafkaMessageReceivedMsg{Records: batch}
 				}
-				batch = append(batch, record)
-			default:
-				return KafkaMessageReceivedMsg{Records: batch}
+
+			case <-timer.C:
+				if len(batch) > 0 {
+					return KafkaMessageReceivedMsg{Records: batch}
+				}
+				timer.Reset(maxWait)
+
+			case <-ctx.Done():
+				return nil
 			}
 		}
-
-		return KafkaMessageReceivedMsg{Records: batch}
 	}
 }
-
 func FetchTopicsCmd(client *kafkaadmin.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()

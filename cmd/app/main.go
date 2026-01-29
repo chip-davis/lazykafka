@@ -179,7 +179,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if _, exists := m.activeConsumers[topic.Name]; !exists {
 					m.consumerCtx, m.consumerCancel = context.WithCancel(context.Background())
-					m.messageChan = make(chan *kgo.Record, 100)
+					m.messageChan = make(chan *kgo.Record, 10000)
 
 					m.activeConsumers[topic.Name] = m.consumerCancel
 
