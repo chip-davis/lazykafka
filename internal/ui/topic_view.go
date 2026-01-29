@@ -2,8 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/junegunn/fzf/src/algo"
+	"github.com/junegunn/fzf/src/util"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -49,6 +53,48 @@ type TopicViewModel struct {
 	searchMode  bool
 	searchInput textinput.Model
 	searchTerm  string
+
+	searchProgress bool
+	filteredCache  []*kgo.Record
+}
+
+type SearchResultMsg struct {
+	results []*kgo.Record
+	query   string
+}
+
+func SearchMessagesCmd(messages []*kgo.Record, query string) tea.Cmd {
+	return func() tea.Msg {
+		if query == "" {
+			return SearchResultMsg{results: messages, query: query}
+		}
+
+		pattern := []rune(query)
+
+		type scoredMatch struct {
+			record *kgo.Record
+			score  int
+		}
+		matches := make([]scoredMatch, 0)
+
+		for _, msg := range messages {
+			valueStr := string(msg.Value)
+			input := util.RunesToChars([]rune(valueStr))
+
+			result, _ := algo.FuzzyMatchV2(false, false, true, &input, pattern, false, nil)
+			if result.Start >= 0 {
+				matches = append(matches, scoredMatch{record: msg, score: result.Score})
+			}
+		}
+		sort.Slice(matches, func(i, j int) bool {
+			return matches[i].score > matches[j].score
+		})
+		results := make([]*kgo.Record, len(matches))
+		for i, match := range matches {
+			results[i] = match.record
+		}
+		return SearchResultMsg{results: results, query: query}
+	}
 }
 
 func (t *TopicViewModel) AddMessage(record *kgo.Record) {
@@ -63,20 +109,7 @@ func (t *TopicViewModel) filteredMessages() []*kgo.Record {
 	if t.searchTerm == "" {
 		return t.messages
 	}
-
-	filtered := make([]*kgo.Record, 0)
-	searchLower := strings.ToLower(t.searchTerm)
-
-	for _, msg := range t.messages {
-		keyStr := strings.ToLower(string(msg.Key))
-		valueStr := strings.ToLower(string(msg.Value))
-
-		if strings.Contains(keyStr, searchLower) || strings.Contains(valueStr, searchLower) {
-			filtered = append(filtered, msg)
-		}
-	}
-
-	return filtered
+	return t.filteredCache
 }
 
 func (t *TopicViewModel) totalPages() int {
@@ -137,14 +170,21 @@ func (t *TopicViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.width = msg.Width
 		t.height = msg.Height
 
+	case SearchResultMsg:
+		if msg.query == t.searchTerm {
+			t.searchProgress = false
+			t.filteredCache = msg.results
+		}
+		return t, nil
 	case tea.KeyMsg:
 		if t.searchMode {
 			switch msg.String() {
 			case "enter":
 				t.searchTerm = t.searchInput.Value()
 				t.searchMode = false
+				t.searchProgress = true
 				t.currentPage = 0
-				return t, nil
+				return t, SearchMessagesCmd(t.messages, t.searchTerm)
 			case "esc":
 				t.searchMode = false
 				t.searchInput.SetValue("")
@@ -299,6 +339,11 @@ func (t *TopicViewModel) View() string {
 			Foreground(lipgloss.Color("241")).
 			Padding(0, 1).
 			Render(fmt.Sprintf("🔍 Searching: '%s' (press 'c' to clear)", t.searchTerm))
+	} else if t.searchProgress {
+		searchBar = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Padding(0, 1).
+			Render("🔍 Searching...")
 	}
 
 	viewportView := t.viewport.View()
