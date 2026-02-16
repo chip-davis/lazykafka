@@ -1,1 +1,4 @@
 # lazykafka
+
+![Demo](demo.gif)
+
